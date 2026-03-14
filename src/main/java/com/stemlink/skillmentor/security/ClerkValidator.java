@@ -13,7 +13,6 @@ import java.net.URL;
 import java.security.PublicKey;
 import java.util.List;
 
-
 @Slf4j
 public class ClerkValidator implements TokenValidator {
 
@@ -29,16 +28,14 @@ public class ClerkValidator implements TokenValidator {
     }
 
     @Override
-    public boolean validateToken(String token){
+    public boolean validateToken(String token) {
         try {
-            // Step 1: Decode JWT without verification to get header info
             DecodedJWT decodedJWT = decodeToken(token);
             if (decodedJWT == null) {
                 log.error("Failed to decode token");
                 return false;
             }
 
-            // Step 2: Extract key ID (kid) from the token header
             String kid = decodedJWT.getKeyId();
             if (kid == null || kid.isEmpty()) {
                 log.error("Token does not contain a key ID (kid)");
@@ -47,7 +44,6 @@ public class ClerkValidator implements TokenValidator {
 
             log.debug("Token kid: {}", kid);
 
-            // Step 3: Fetch JWK and verify signature
             if (!verifyTokenSignature(token, kid)) {
                 log.error("Token signature verification failed");
                 return false;
@@ -65,9 +61,7 @@ public class ClerkValidator implements TokenValidator {
     @Override
     public String extractUserId(String token) {
         try {
-            if (!validateToken(token)) {
-                return null;
-            }
+            if (!validateToken(token)) return null;
             DecodedJWT decodedJWT = decodeToken(token);
             return decodedJWT != null ? decodedJWT.getSubject() : null;
         } catch (Exception e) {
@@ -79,14 +73,10 @@ public class ClerkValidator implements TokenValidator {
     @Override
     public List<String> extractRoles(String token) {
         try {
-            if (!validateToken(token)) {
-                return null;
-            }
+            if (!validateToken(token)) return null;
             DecodedJWT decodedJWT = decodeToken(token);
-            if (decodedJWT == null) {
-                return null;
-            }
-            return decodedJWT.getClaim("roles").asList(String.class);
+            if (decodedJWT == null) return null;
+            return decodedJWT.getClaim("role").asList(String.class);
         } catch (Exception e) {
             log.error("Error extracting roles: {}", e.getMessage());
             return null;
@@ -126,7 +116,6 @@ public class ClerkValidator implements TokenValidator {
         }
     }
 
-
     private DecodedJWT decodeToken(String token) {
         try {
             return JWT.decode(token);
@@ -138,15 +127,16 @@ public class ClerkValidator implements TokenValidator {
 
     private boolean verifyTokenSignature(String token, String kid) {
         try {
-            // Fetch the JWK from Clerk
             Jwk jwk = jwkProvider.get(kid);
-
-            // Get the public key from the JWK
             PublicKey publicKey = jwk.getPublicKey();
 
-            // Create algorithm and verify the token
             Algorithm algorithm = Algorithm.RSA256((java.security.interfaces.RSAPublicKey) publicKey, null);
-            JWT.require(algorithm).build().verify(token);
+
+            // Accept up to 30 seconds of clock skew between the server and Clerk
+            JWT.require(algorithm)
+                    .acceptLeeway(30)
+                    .build()
+                    .verify(token);
 
             log.debug("Token signature verified successfully for kid: {}", kid);
             return true;
@@ -156,5 +146,4 @@ public class ClerkValidator implements TokenValidator {
             return false;
         }
     }
-
 }

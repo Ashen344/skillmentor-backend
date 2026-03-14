@@ -4,8 +4,11 @@ import com.stemlink.skillmentor.entities.Subject;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-@Repository
-public interface SubjectRepository extends JpaRepository<Subject,Long> {
+import java.util.List;
 
-    // custom queries
+@Repository
+public interface SubjectRepository extends JpaRepository<Subject, Long> {
+
+    // Fetch all subjects for a specific mentor — used on the profile page
+    List<Subject> findByMentor_Id(Long mentorId);
 }

@@ -1,6 +1,5 @@
 package com.stemlink.skillmentor.configs;
 
-//import com.stemlink.skillmentor.security.JwtAuthenticationFilter;
 import com.stemlink.skillmentor.security.AuthenticationFilter;
 import com.stemlink.skillmentor.security.SkillMentorAuthenticationEntryPoint;
 import lombok.RequiredArgsConstructor;
@@ -27,22 +26,20 @@ import org.springframework.web.cors.CorsConfigurationSource;
 public class SecurityConfig {
 
     private final AuthenticationFilter clerkAuthenticationFilter;
-
     private final SkillMentorAuthenticationEntryPoint skillMentorAuthenticationEntryPoint;
     private final CorsConfigurationSource corsConfigurationSource;
-
-    //TODO: handle unauthorized error 403
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .cors(cors -> cors.configurationSource(corsConfigurationSource))
-            .csrf(AbstractHttpConfigurer::disable)
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
+                .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(skillMentorAuthenticationEntryPoint)
                 )
                 .authorizeHttpRequests(auth -> auth
+                        // Swagger / OpenAPI docs - public
                         .requestMatchers(
                                 "/api/public/**",
                                 "/v3/api-docs/**",
@@ -52,12 +49,21 @@ public class SecurityConfig {
                                 "/webjars/**",
                                 "/swagger-resources/**"
                         ).permitAll()
-                        // Public read access to mentors from home page
-                        .requestMatchers(HttpMethod.GET, "/api/v1/mentors", "/api/v1/mentors/*").permitAll()
+                        // Public read access to mentors (used on the home page)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/mentors", "/api/v1/mentors/*", "/api/v1/mentors/*/profile").permitAll()
+                        // Admin-only: creating/updating/deleting subjects
+                        .requestMatchers(HttpMethod.POST, "/api/v1/subjects").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/subjects/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/subjects/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/mentors/*").hasRole("ADMIN")
+                        // Admin-only: viewing all sessions and updating them
+                        .requestMatchers(HttpMethod.GET, "/api/v1/sessions").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/sessions/*").hasRole("ADMIN")
+                        // Everything else just needs to be authenticated
                         .anyRequest().authenticated()
                 )
-            .addFilterBefore(clerkAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-            .httpBasic(AbstractHttpConfigurer::disable);
+                .addFilterBefore(clerkAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .httpBasic(AbstractHttpConfigurer::disable);
 
         return http.build();
     }

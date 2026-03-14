@@ -1,6 +1,5 @@
 package com.stemlink.skillmentor.services.impl;
 
-import com.stemlink.skillmentor.SkillmentorApplication;
 import com.stemlink.skillmentor.entities.Session;
 import com.stemlink.skillmentor.entities.Student;
 import com.stemlink.skillmentor.entities.Mentor;
@@ -11,6 +10,7 @@ import com.stemlink.skillmentor.respositories.StudentRepository;
 import com.stemlink.skillmentor.respositories.MentorRepository;
 import com.stemlink.skillmentor.respositories.SubjectRepository;
 import com.stemlink.skillmentor.dto.SessionDTO;
+import com.stemlink.skillmentor.dto.SessionUpdateDTO;
 import com.stemlink.skillmentor.security.UserPrincipal;
 import com.stemlink.skillmentor.services.SessionService;
 import com.stemlink.skillmentor.utils.ValidationUtils;
@@ -20,8 +20,6 @@ import org.modelmapper.ModelMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-import java.util.Calendar;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
@@ -37,7 +35,6 @@ public class SessionServiceImpl implements SessionService {
     private final ModelMapper modelMapper;
 
     public Session createNewSession(SessionDTO sessionDTO) {
-        // Fetch the related entities by their IDs
         try {
             Student student = studentRepository.findById(sessionDTO.getStudentId()).orElseThrow(
                     () -> new SkillMentorException("Student not found", HttpStatus.NOT_FOUND)
@@ -49,27 +46,13 @@ public class SessionServiceImpl implements SessionService {
                     () -> new SkillMentorException("Subject not found", HttpStatus.NOT_FOUND)
             );
 
-            // Checking availability
             ValidationUtils.validateMentorAvailability(mentor, sessionDTO.getSessionAt(), sessionDTO.getDurationMinutes());
             ValidationUtils.validateStudentAvailability(student, sessionDTO.getSessionAt(), sessionDTO.getDurationMinutes());
 
-
-            // Create and populate the Session entity
-//        Session session = new Session();
-//        session.setSessionAt(sessionDTO.getSessionAt());
-//        session.setDurationMinutes(sessionDTO.getDurationMinutes());
-//        session.setSessionStatus(sessionDTO.getSessionStatus());
-//        session.setMeetingLink(sessionDTO.getMeetingLink());
-//        session.setSessionNotes(sessionDTO.getSessionNotes());
-//        session.setStudentReview(sessionDTO.getStudentReview());
-//        session.setStudentRating(sessionDTO.getStudentRating());
-
-            // using model mapper
             Session session = modelMapper.map(sessionDTO, Session.class);
             session.setStudent(student);
             session.setMentor(mentor);
             session.setSubject(subject);
-
 
             return sessionRepository.save(session);
         } catch (SkillMentorException skillMentorException) {
@@ -79,11 +62,10 @@ public class SessionServiceImpl implements SessionService {
             log.error("Failed to create session", exception);
             throw new SkillMentorException("Failed to create new session", HttpStatus.INTERNAL_SERVER_ERROR);
         }
-
     }
 
     public List<Session> getAllSessions() {
-        return sessionRepository.findAll(); // SELECT * FROM sessions
+        return sessionRepository.findAll();
     }
 
     public Session getSessionById(Long id) {
@@ -92,11 +74,8 @@ public class SessionServiceImpl implements SessionService {
 
     public Session updateSessionById(Long id, SessionDTO updatedSessionDTO) {
         Session session = sessionRepository.findById(id).get();
-
-        // source -> destination
         modelMapper.map(updatedSessionDTO, session);
 
-        // Update the related entities
         if (updatedSessionDTO.getStudentId() != null) {
             Student student = studentRepository.findById(updatedSessionDTO.getStudentId()).get();
             session.setStudent(student);
@@ -111,29 +90,6 @@ public class SessionServiceImpl implements SessionService {
             session.setSubject(subject);
         }
 
-//        // Update other fields
-//        if (updatedSessionDTO.getSessionAt() != null) {
-//            session.setSessionAt(updatedSessionDTO.getSessionAt());
-//        }
-//        if (updatedSessionDTO.getDurationMinutes() != null) {
-//            session.setDurationMinutes(updatedSessionDTO.getDurationMinutes());
-//        }
-//        if (updatedSessionDTO.getSessionStatus() != null) {
-//            session.setSessionStatus(updatedSessionDTO.getSessionStatus());
-//        }
-//        if (updatedSessionDTO.getMeetingLink() != null) {
-//            session.setMeetingLink(updatedSessionDTO.getMeetingLink());
-//        }
-//        if (updatedSessionDTO.getSessionNotes() != null) {
-//            session.setSessionNotes(updatedSessionDTO.getSessionNotes());
-//        }
-//        if (updatedSessionDTO.getStudentReview() != null) {
-//            session.setStudentReview(updatedSessionDTO.getStudentReview());
-//        }
-//        if (updatedSessionDTO.getStudentRating() != null) {
-//            session.setStudentRating(updatedSessionDTO.getStudentRating());
-//        }
-
         return sessionRepository.save(session);
     }
 
@@ -142,7 +98,7 @@ public class SessionServiceImpl implements SessionService {
     }
 
     public Session enrollSession(UserPrincipal userPrincipal, SessionDTO sessionDTO) {
-        // Find student by email from JWT, or auto-create user on first enrollment
+        // Find student by email from JWT, or auto-create on first enrollment
         Student student = studentRepository.findByEmail(userPrincipal.getEmail())
                 .orElseGet(() -> {
                     Student s = new Student();
@@ -154,16 +110,61 @@ public class SessionServiceImpl implements SessionService {
                 });
 
         Mentor mentor = mentorRepository.findByMentorId(String.valueOf(sessionDTO.getMentorId()))
-                .orElseThrow(() -> new RuntimeException("Mentor not found with mentorId: " + sessionDTO.getMentorId()));
+                .orElseThrow(() -> new SkillMentorException(
+                        "Mentor not found with mentorId: " + sessionDTO.getMentorId(), HttpStatus.NOT_FOUND));
+
         Subject subject = subjectRepository.findById(sessionDTO.getSubjectId())
-                .orElseThrow(() -> new RuntimeException("Subject not found with id: " + sessionDTO.getSubjectId()));
+                .orElseThrow(() -> new SkillMentorException(
+                        "Subject not found with id: " + sessionDTO.getSubjectId(), HttpStatus.NOT_FOUND));
+
+        Date sessionAt = sessionDTO.getSessionAt();
+        int duration = sessionDTO.getDurationMinutes() != null ? sessionDTO.getDurationMinutes() : 60;
+        Date sessionEnd = ValidationUtils.addMinutesToDate(sessionAt, duration);
+
+        // 1. Reject sessions in the past
+        ValidationUtils.validateSessionNotInPast(sessionAt);
+
+        // 2. Reject if student already has an overlapping session with this mentor
+        boolean mentorConflict = sessionRepository
+                .findActiveSessionsForStudentAndMentor(userPrincipal.getEmail(), mentor.getId())
+                .stream()
+                .anyMatch(s -> ValidationUtils.isTimeOverlap(
+                        sessionAt, sessionEnd,
+                        s.getSessionAt(),
+                        ValidationUtils.addMinutesToDate(s.getSessionAt(), s.getDurationMinutes())
+                ));
+        if (mentorConflict) {
+            throw new SkillMentorException(
+                    "You already have a session booked with this mentor at an overlapping time",
+                    HttpStatus.CONFLICT
+            );
+        }
+
+        // 3. Reject if student already booked this subject at an overlapping time
+        boolean subjectConflict = sessionRepository
+                .findActiveSessionsForStudentAndSubject(userPrincipal.getEmail(), subject.getId())
+                .stream()
+                .anyMatch(s -> ValidationUtils.isTimeOverlap(
+                        sessionAt, sessionEnd,
+                        s.getSessionAt(),
+                        ValidationUtils.addMinutesToDate(s.getSessionAt(), s.getDurationMinutes())
+                ));
+        if (subjectConflict) {
+            throw new SkillMentorException(
+                    "You already have a session booked for this subject at an overlapping time",
+                    HttpStatus.CONFLICT
+            );
+        }
+
+        // 4. Check mentor availability (no double-booking the mentor's time)
+        ValidationUtils.validateMentorAvailability(mentor, sessionAt, duration);
 
         Session session = new Session();
         session.setStudent(student);
         session.setMentor(mentor);
         session.setSubject(subject);
-        session.setSessionAt(sessionDTO.getSessionAt());
-        session.setDurationMinutes(sessionDTO.getDurationMinutes() != null ? sessionDTO.getDurationMinutes() : 60);
+        session.setSessionAt(sessionAt);
+        session.setDurationMinutes(duration);
         session.setSessionStatus("scheduled");
         session.setPaymentStatus("pending");
 
@@ -174,4 +175,22 @@ public class SessionServiceImpl implements SessionService {
         return sessionRepository.findByStudent_Email(email);
     }
 
+    // Admin: update only the status fields or meeting link
+    public Session updateSessionStatus(Long id, SessionUpdateDTO updateDTO) {
+        Session session = sessionRepository.findById(id)
+                .orElseThrow(() -> new SkillMentorException(
+                        "Session not found", HttpStatus.NOT_FOUND));
+
+        if (updateDTO.getPaymentStatus() != null) {
+            session.setPaymentStatus(updateDTO.getPaymentStatus());
+        }
+        if (updateDTO.getSessionStatus() != null) {
+            session.setSessionStatus(updateDTO.getSessionStatus());
+        }
+        if (updateDTO.getMeetingLink() != null) {
+            session.setMeetingLink(updateDTO.getMeetingLink());
+        }
+
+        return sessionRepository.save(session);
+    }
 }
