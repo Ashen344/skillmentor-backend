@@ -2,6 +2,8 @@
 ```
 Frontend REPO - https://github.com/Ashen344/skillmentor-frontend/tree/skillmentor-frontend-final
 Backend REPO - https://github.com/Ashen344/skillmentor-backend/tree/skillmentor-backend-final
+Frontend deployment Link - https://skillmentor-frontend-tau.vercel.app
+Backend deployment Link - https://skillmentor-backend-28l5.onrender.com
 
 All the final changes are done in the brach
 Frontend - skillmentor-frontend-final
